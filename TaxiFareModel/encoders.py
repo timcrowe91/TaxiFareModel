@@ -57,3 +57,31 @@ class DistanceTransformer(BaseEstimator, TransformerMixin):
                                                  end_lon = self.end_lon)
         return X_temp[['distance']]
 
+
+class DistanceToCenterTransformer(BaseEstimator, TransformerMixin):
+    """Compute the haversine distance between two GPS points."""
+    def __init__(self, 
+                 nyc_lat="nyc_lat",
+                 nyc_lon="nyc_lon", 
+                 end_lat="dropoff_latitude", 
+                 end_lon="dropoff_longitude"):
+        self.nyc_lat = nyc_lat
+        self.nyc_lon = nyc_lon
+        self.end_lat = end_lat
+        self.end_lon = end_lon
+
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        """Returns a copy of the DataFrame X with only one column: 'distance'"""
+        assert isinstance(X, pd.DataFrame)
+        X_temp = X.copy()
+        X_temp['nyc_lat'] = 40.7141667
+        X_temp['nyc_lon'] = -74.0063889
+        X_temp['distance_to_center'] = haversine_vectorized(X_temp, 
+                                                 start_lat = self.nyc_lat,
+                                                 start_lon = self.nyc_lon,
+                                                 end_lat = self.end_lat,
+                                                 end_lon = self.end_lon)
+        return X_temp[['distance_to_center']]
