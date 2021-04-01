@@ -9,7 +9,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_val_score
 from TaxiFareModel.data import get_data, clean_data
 from TaxiFareModel.encoders import DistanceTransformer, TimeFeaturesEncoder, DistanceToCenterTransformer
-from TaxiFareModel.utils import compute_rmse, haversine_vectorized
+from TaxiFareModel.utils import compute_rmse, haversine_vectorized, df_optimized
 from sklearn.model_selection import train_test_split
 from memoized_property import memoized_property
 import pandas as pd
@@ -17,6 +17,8 @@ import numpy as np
 import mlflow
 from  mlflow.tracking import MlflowClient
 import joblib
+from google.cloud import storage
+
 
 
 
@@ -62,13 +64,12 @@ class Trainer():
         """set and train the pipeline"""
         pipeline = self.set_pipeline()
 
-        cross_score = cross_val_score(pipeline, self.X, self.y, cv=5, \
-            scoring='neg_root_mean_squared_error').mean() * -1   
-        self.mlflow_log_metric("cross val rmse", cross_score)
+        cross_score = cross_val_score(pipeline, self.X, self.y, cv=5).mean()   
+        self.mlflow_log_metric("cross val score", cross_score)
 
         pipeline.fit(self.X, self.y)
         self.pipeline = pipeline
-        self.mlflow_log_param("model", str(model))
+        self.mlflow_log_param("model", str(self.model))
         return self.pipeline
 
     def evaluate(self, X_test, y_test):
@@ -77,6 +78,27 @@ class Trainer():
         score = compute_rmse(y_pred, y_test)
         self.mlflow_log_metric("test rmse", score)
         return score
+
+    
+
+    def save_model(self):
+        """method that saves the model into a .joblib file and uploads it on Google Storage /models folder
+        HINTS : use joblib library and google-cloud-storage"""
+
+        # saving the trained model to disk is mandatory to then beeing able to upload it to storage
+        joblib.dump(self.pipeline, 'model.joblib')
+        print("saved model.joblib locally")
+
+        # Implement here
+        client = storage.Client()
+        bucket = client.get_bucket('wagon-ml-crowe-le-wagon-project-309316')
+        blob = bucket.blob('models/taxi_fare_model/model.joblib')
+        blob.upload_from_filename('model.joblib')
+        print("uploaded model.joblib to gcp cloud storage under \n => \
+            wagon-ml-crowe-le-wagon-project-309316/models/model.joblib")
+        
+        return None
+
 
     @memoized_property
     def mlflow_client(self):
@@ -100,34 +122,28 @@ class Trainer():
     def mlflow_log_metric(self, key, value):
         self.mlflow_client.log_metric(self.mlflow_run.info.run_id, key, value)
 
-    def save_model(self):
-        """Save the model into a .joblib format"""
-        joblib.dump(self.pipeline, f'{str(self.model)}.joblib')
+
 
 
 
 
 
 if __name__ == "__main__":
-    models = [LinearRegression(), RandomForestRegressor(), KNeighborsRegressor(),\
-        AdaBoostRegressor(), BaggingRegressor()]
-    for model in models:
-        print(f"Running for {model}")
-        # get data
-        #df = get_data(nrows = 1000)
-        df = pd.read_csv("raw_data/train_10k.csv")
-        # clean data
-        df_cleaned = clean_data(df)
-        # set X and y
-        X = df_cleaned.drop(columns = 'fare_amount')
-        y = df_cleaned['fare_amount']
-        # hold out
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-        # train
-        trainer = Trainer(X_train, y_train, EXPERIMENT_NAME, model)
-        trainer.run()
-        # evaluate
-        trainer.evaluate(X_test, y_test)
-        #score = trainer.evaluate(X_test, y_test)
-        #print(score)
-        trainer.save_model()
+    df = get_data()
+    # clean data
+    df_cleaned = clean_data(df)
+    #optimize
+    df_opt = df_optimized(df_cleaned)
+    # set X and y
+    X = df_opt.drop(columns = 'fare_amount')
+    y = df_opt['fare_amount']
+    # hold out
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    # train
+    trainer = Trainer(X_train, y_train, EXPERIMENT_NAME, BaggingRegressor())
+    trainer.run()
+    # evaluate
+    trainer.evaluate(X_test, y_test)
+    #score = trainer.evaluate(X_test, y_test)
+    #print(score)
+    trainer.save_model()

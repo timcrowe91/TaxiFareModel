@@ -59,3 +59,72 @@ pypi_test:
 
 pypi:
 	@twine upload dist/* -u $(PYPI_USERNAME)
+
+# ----------------------------------
+#      GCP Bucket Creation
+# ----------------------------------
+
+# project id
+PROJECT_ID=le-wagon-project-309316
+
+# bucket name
+BUCKET_NAME=wagon-ml-crowe-le-wagon-project-309316
+
+REGION=US-WEST2
+
+set_project:
+	@gcloud config set project ${PROJECT_ID}
+
+create_bucket:
+	@gsutil mb -l ${REGION} -p ${PROJECT_ID} gs://${BUCKET_NAME}
+
+
+# ----------------------------------
+#      Upload to bucket
+# ----------------------------------
+
+LOCAL_PATH="/home/tim/code/timcrowe91/TaxiFareModel/raw_data/train_1k.csv"
+
+BUCKET_FOLDER=data
+
+BUCKET_FILE_NAME=$(shell basename ${LOCAL_PATH})
+
+upload_data:
+	@gsutil cp ${LOCAL_PATH} gs://${BUCKET_NAME}/${BUCKET_FOLDER}/${BUCKET_FILE_NAME}
+
+
+# ----------------------------------
+#      SUBMIT TRAINING TO GCP
+# ----------------------------------
+
+BUCKET_NAME=wagon-ml-crowe-le-wagon-project-309316
+BUCKET_TRAINING_FOLDER=training
+
+REGION=us-west2
+
+PYTHON_VERSION=3.7
+FRAMEWORK=scikit-learn
+RUNTIME_VERSION=1.15
+
+PACKAGE_NAME=TaxiFareModel
+FILENAME=trainer
+
+JOB_NAME=taxi_fare_training_pipeline_$(shell date +'%Y%m%d_%H%M%S')
+
+gcp_submit_training:
+	gcloud ai-platform jobs submit training ${JOB_NAME} \
+	--job-dir gs://${BUCKET_NAME}/${BUCKET_TRAINING_FOLDER}  \
+	--package-path ${PACKAGE_NAME} \
+	--module-name ${PACKAGE_NAME}.${FILENAME} \
+	--python-version=${PYTHON_VERSION} \
+	--runtime-version=${RUNTIME_VERSION} \
+	--region ${REGION} \
+	--stream-logs
+
+
+# ----------------------------------
+#             API Stuff
+# ----------------------------------
+
+run_api:
+	uvicorn api.fast:app --reload  # load web server with code autoreload
